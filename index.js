@@ -1,6 +1,6 @@
 const express = require('express');
 const app = express();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
@@ -11,7 +11,6 @@ app.use(cors());
 app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.kwtddbl.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -19,6 +18,32 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
+
+// JWT Authentication Middleware
+const verifyJWT = (req, res, next) => {
+    const token = req.headers.authorization;
+    if (!token) {
+        return res.status(401).send({ message: 'Unauthorized access' });
+    }
+
+    jwt.verify(token.split(' ')[1], process.env.JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(403).send({ message: 'Forbidden access' });
+        }
+        req.user = decoded;
+        next();
+    });
+};
+
+// Admin Role Middleware
+const verifyAdmin = async (req, res, next) => {
+    const user = await client.db("Bus-Ticket").collection('users').findOne({ _id: new ObjectId(req.user.id) });
+    if (user && user.role === 'admin') {
+        next(); // If admin, proceed to the route
+    } else {
+        res.status(403).send({ message: 'Admin access required' });
+    }
+};
 
 async function run() {
     try {
@@ -46,7 +71,11 @@ async function run() {
                 // Find the user by phone number
                 const user = await userCollections.findOne({ phone });
                 if (!user) {
-                    return res.status(401).send({ message: 'User not found' });
+                    return res.status(402).send({ message: 'User not found' });
+                }
+
+                if (user.role !== role) {
+                    return res.status(403).send({ message: 'Access denied. Role does not match.' });
                 }
 
                 // Check if the password matches
@@ -54,16 +83,21 @@ async function run() {
                     return res.status(401).send({ message: 'Invalid password' });
                 }
 
-                if (user.role !== role) {
-                    return res.status(403).send({ message: 'Access denied. Role does not match.' });
-                }
-
                 const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
                 res.status(200).send({ message: 'Login successful', token });
             } catch (error) {
                 res.status(500).send({ message: 'Login failed', error });
             }
+        });
+
+        // Protected route for admin users
+        app.get('/admin/dashboard', verifyJWT, verifyAdmin, (req, res) => {
+            res.status(200).send({ message: 'Welcome Admin to the dashboard' });
+        });
+
+        // Check user authentication status
+        app.get('/auth-status', verifyJWT, async (req, res) => {
+            res.status(200).send({ isLoggedIn: true, role: req.user.role });
         });
 
         await client.db("admin").command({ ping: 1 });
