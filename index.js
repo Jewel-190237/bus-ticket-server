@@ -101,13 +101,13 @@ async function run() {
         });
 
         // get all users
-        app.get('/users', async (req, res) => {
+        app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
             const user = userCollections.find();
             const result = await user.toArray();
             res.send(result);
         })
         // delete a specific user
-        app.delete('/users/:id', async (req, res) => {
+        app.delete('/users/:id', verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             console.log('Deleting user with ID:', id);  
             const query = { _id: new ObjectId(id) };
