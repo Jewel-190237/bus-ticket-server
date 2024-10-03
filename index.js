@@ -100,6 +100,21 @@ async function run() {
             res.status(200).send({ isLoggedIn: true, role: req.user.role });
         });
 
+        // get all users
+        app.get('/users', async (req, res) => {
+            const user = userCollections.find();
+            const result = await user.toArray();
+            res.send(result);
+        })
+        // delete a specific user
+        app.delete('/users/:id', async (req, res) => {
+            const id = req.params.id;
+            console.log('Deleting user with ID:', id);  
+            const query = { _id: new ObjectId(id) };
+            const result = await userCollections.deleteOne(query);
+            res.send(result);
+        })
+
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
