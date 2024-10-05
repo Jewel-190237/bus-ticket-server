@@ -1,5 +1,6 @@
 const express = require('express');
 const app = express();
+const SSLCommerzPayment = require('sslcommerz-lts')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const cors = require('cors');
@@ -55,6 +56,10 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
+
+const store_id = process.env.STORE_ID;
+const store_passwd = process.env.STORE_PASS;
+const is_live = false;
 
 
 async function run() {
@@ -209,6 +214,67 @@ async function run() {
                 res.status(500).send({ message: 'Error while resetting password', error });
             }
         });
+
+        app.post('/payment', async (req, res) => {
+            const price = req.body.price;
+            const name = req.body.name;
+            const email = req.body.email;
+            const location = req.body.location;
+            const address = req.body.address;
+            const phone = req.body.phone;
+            const allocatedSeat = req.body.allocatedSeat;
+
+            const tran_id = new ObjectId().toString();
+            const data = {
+                total_amount: price,
+                currency: 'BDT',
+                tran_id: tran_id, 
+                success_url: 'http://localhost:3030/success',
+                fail_url: 'http://localhost:3030/fail',
+                cancel_url: 'http://localhost:3030/cancel',
+                ipn_url: 'http://localhost:3030/ipn',
+                shipping_method: 'Courier',
+                product_name: 'Computer.',
+                product_category: 'Electronic',
+                product_profile: 'general',
+                cus_name: name,
+                cus_email: email,
+                cus_add1: address,
+                cus_add2: 'Dhaka',
+                cus_city: 'Dhaka',
+                cus_state: 'Dhaka',
+                cus_postcode: '1000',
+                cus_country: 'Bangladesh',
+                cus_phone: phone,
+                cus_fax: '01711111111',
+                ship_name: 'Customer Name',
+                ship_add1: 'Dhaka',
+                ship_add2: 'Dhaka',
+                ship_city: 'Dhaka',
+                ship_state: 'Dhaka',
+                ship_postcode: 1000,
+                ship_country: 'Bangladesh',
+                location: location,
+                allocatedSeat: allocatedSeat
+            };
+
+            const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
+            sslcz.init(data).then(apiResponse => {
+                console.log('API Response:', apiResponse); // Log full response for debugging
+                if (apiResponse.GatewayPageURL) {
+                    // Redirect the user to payment gateway
+                    let GatewayPageURL = apiResponse.GatewayPageURL;
+                    res.send({ url: GatewayPageURL });
+                    console.log('Redirecting to: ', GatewayPageURL);
+                } else {
+                    res.status(400).send({ error: 'Failed to get GatewayPageURL', details: apiResponse });
+                }
+            }).catch(error => {
+                console.error('SSLCommerz API Error:', error);
+                res.status(500).send({ error: 'Payment initialization failed', details: error });
+            });
+        });
+
 
 
         await client.db("admin").command({ ping: 1 });
