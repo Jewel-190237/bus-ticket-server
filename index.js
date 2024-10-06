@@ -331,10 +331,24 @@ async function run() {
             const seat = await allocatedSeatCollections.deleteOne(
                 { tran_id: req.params.tran_id }
             );
-            if (result.modifiedCount > 0) {
-                res.redirect(`http://localhost:5173/payment/fail/${req.params.tran_id}`)
+
+            if (result.deletedCount > 0 && seat.deletedCount > 0) {
+                res.redirect(`http://localhost:5173/payment/fail/${req.params.tran_id}`);
+            } else {
+                res.status(500).send({ message: 'Failed to delete order or seat data' });
             }
-        })
+        });
+        // Get allocated seats with status 'paid'
+        app.get('/allocated-seats', verifyJWT, async (req, res) => {
+            try {
+                const paidSeats = await allocatedSeatCollections.find({ status: 'paid' }).toArray();
+                res.status(200).send(paidSeats);
+            } catch (error) {
+                res.status(500).send({ message: 'Error fetching allocated seats', error });
+            }
+        });
+
+
 
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
