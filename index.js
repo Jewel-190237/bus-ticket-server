@@ -65,6 +65,8 @@ const is_live = false;
 async function run() {
     try {
         const userCollections = client.db("Bus-Ticket").collection('users');
+        const orderCollections = client.db("Bus-Ticket").collection('orders');
+        const allocatedSeatCollections = client.db("Bus-Ticket").collection('allocatedSeat');
 
         // Create user (sign-up)
         app.post('/users', async (req, res) => {
@@ -228,9 +230,9 @@ async function run() {
             const data = {
                 total_amount: price,
                 currency: 'BDT',
-                tran_id: tran_id, 
-                success_url: 'http://localhost:3030/success',
-                fail_url: 'http://localhost:3030/fail',
+                tran_id: tran_id,
+                success_url: `http://localhost:5000/payment/success/${tran_id}`,
+                fail_url: `http://localhost:5000/payment/fail/${tran_id}`,
                 cancel_url: 'http://localhost:3030/cancel',
                 ipn_url: 'http://localhost:3030/ipn',
                 shipping_method: 'Courier',
@@ -260,11 +262,35 @@ async function run() {
 
             const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
             sslcz.init(data).then(apiResponse => {
-                console.log('API Response:', apiResponse); // Log full response for debugging
+                // console.log('API Response:', apiResponse); // Log full response for debugging
                 if (apiResponse.GatewayPageURL) {
                     // Redirect the user to payment gateway
                     let GatewayPageURL = apiResponse.GatewayPageURL;
                     res.send({ url: GatewayPageURL });
+
+                    const order = {
+                        price: price,
+                        name: name,
+                        phone: phone,
+                        email: email,
+                        location: location,
+                        address: address,
+                        allocatedSeat: allocatedSeat,
+                        tran_id: tran_id,
+                        status: 'loading'
+                    }
+                    const seat = {
+                        allocatedSeat: allocatedSeat,
+                        status: 'loading',
+                        tran_id: tran_id,
+                    }
+
+                    const result = orderCollections.insertOne(order);
+                    console.log(result)
+                    const blockedSeat = allocatedSeatCollections.insertOne(seat);
+                    console.log(blockedSeat)
+
+
                     console.log('Redirecting to: ', GatewayPageURL);
                 } else {
                     res.status(400).send({ error: 'Failed to get GatewayPageURL', details: apiResponse });
@@ -275,7 +301,40 @@ async function run() {
             });
         });
 
+        // payment success 
+        app.post('/payment/success/:tran_id', async (req, res) => {
+            console.log(req.params.tran_id);
+            const result = await orderCollections.updateOne(
+                { tran_id: req.params.tran_id },
+                {
+                    $set: { status: 'paid' }
+                }
+            )
+            const success = await allocatedSeatCollections.updateOne(
+                { tran_id: req.params.tran_id },
+                {
+                    $set: { status: 'paid' }
+                }
+            )
+            if (result.modifiedCount > 0) {
+                res.redirect(`http://localhost:5173/payment/success/${req.params.tran_id}`)
+            }
+        })
 
+
+        //payment fail
+        app.post('/payment/fail/:tran_id', async (req, res) => {
+            const result = await orderCollections.deleteOne(
+                { tran_id: req.params.tran_id }
+            );
+
+            const seat = await allocatedSeatCollections.deleteOne(
+                { tran_id: req.params.tran_id }
+            );
+            if (result.modifiedCount > 0) {
+                res.redirect(`http://localhost:5173/payment/fail/${req.params.tran_id}`)
+            }
+        })
 
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
