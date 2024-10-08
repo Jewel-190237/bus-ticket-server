@@ -380,6 +380,30 @@ async function run() {
             res.send(result);
         })
 
+        // Add bus
+        app.post('/buses', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const bus = req.body;
+
+                // Query to check if a bus with the same name and route already exists
+                const query = { busName: bus.busName, route1: bus.route1 };
+                const existingBus = await busCollections.findOne(query);
+
+                // If the bus already exists, return a conflict status
+                if (existingBus) {
+                    return res.status(409).send({ message: 'Bus already exists with the same name and route.' });
+                }
+
+                // If the bus doesn't exist, insert the new bus data
+                const result = await busCollections.insertOne(bus);
+                return res.status(200).send(result);
+            } catch (error) {
+                // Handle any errors that occur during the process
+                console.error('Error inserting bus data:', error);
+                return res.status(500).send({ message: 'Internal Server Error' });
+            }
+        });
+
         // Bus Service
         app.get('/buses', async (req, res) => {
             const bus = busCollections.find();
@@ -402,6 +426,22 @@ async function run() {
             const result = await userCollections.deleteOne(query);
             res.send(result);
         })
+
+        // posting route 
+        app.post('/routes', verifyJWT, verifyAdmin, async (req, res) => {
+            try {
+                const bus = req.body;
+
+
+                const result = await routeCollections.insertOne(bus);
+
+                return res.status(201).send(result);
+            } catch (error) {
+
+                console.error('Error inserting bus data:', error);
+                return res.status(500).send({ message: 'Internal Server Error' });
+            }
+        });
 
         // delete a specific routes
         app.delete('/routes/:busId/:routeIndex', verifyJWT, verifyAdmin, async (req, res) => {
