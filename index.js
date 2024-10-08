@@ -67,6 +67,8 @@ async function run() {
         const userCollections = client.db("Bus-Ticket").collection('users');
         const orderCollections = client.db("Bus-Ticket").collection('orders');
         const allocatedSeatCollections = client.db("Bus-Ticket").collection('allocatedSeat');
+        const busCollections = client.db("Bus-Ticket").collection('buses');
+        const routeCollections = client.db("Bus-Ticket").collection('routes');
 
         // Create user (sign-up)
         app.post('/users', async (req, res) => {
@@ -225,6 +227,7 @@ async function run() {
             const address = req.body.address;
             const phone = req.body.phone;
             const allocatedSeat = req.body.allocatedSeat;
+            const busName = req.body.busName;
 
             const tran_id = new ObjectId().toString();
             const data = {
@@ -277,12 +280,14 @@ async function run() {
                         address: address,
                         allocatedSeat: allocatedSeat,
                         tran_id: tran_id,
-                        status: 'loading'
+                        status: 'loading',
+                        busName: busName
                     }
                     const seat = {
                         allocatedSeat: allocatedSeat,
                         status: 'loading',
                         tran_id: tran_id,
+                        busName: busName
                     }
 
                     const result = orderCollections.insertOne(order);
@@ -338,16 +343,180 @@ async function run() {
                 res.status(500).send({ message: 'Failed to delete order or seat data' });
             }
         });
+
         // Get allocated seats with status 'paid'
-        app.get('/allocated-seats', verifyJWT, async (req, res) => {
+        app.get('/allocated-seats/:busName', async (req, res) => {
             try {
-                const paidSeats = await allocatedSeatCollections.find({ status: 'paid' }).toArray();
+                const paidSeats = await allocatedSeatCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
+                console.log(paidSeats); // Log the fetched seats to the console
                 res.status(200).send(paidSeats);
             } catch (error) {
+                console.error('Error fetching allocated seats:', error); // Log error details
                 res.status(500).send({ message: 'Error fetching allocated seats', error });
             }
         });
 
+
+        // Get order details by transaction ID for invoice Download
+        app.get('/order/:tran_id', async (req, res) => {
+            const tran_id = req.params.tran_id;
+            try {
+                const order = await orderCollections.findOne({ tran_id });
+                if (order) {
+                    res.status(200).send(order);
+                } else {
+                    res.status(404).send({ message: 'Order not found' });
+                }
+            } catch (error) {
+                res.status(500).send({ message: 'Error fetching order details', error });
+            }
+        });
+
+
+        //getting routes
+        app.get('/routes', verifyJWT, verifyAdmin, async (req, res) => {
+            const user = routeCollections.find();
+            const result = await user.toArray();
+            res.send(result);
+        })
+
+        // Bus Service
+        app.get('/buses', async (req, res) => {
+            const bus = busCollections.find();
+            const result = await bus.toArray();
+            res.send(result);
+        })
+
+        app.get('/buses/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await busCollections.findOne(query);
+            res.send(result);
+        })
+
+        // delete a specific user
+        app.delete('/users/:id', verifyJWT, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            console.log('Deleting user with ID:', id);
+            const query = { _id: new ObjectId(id) };
+            const result = await userCollections.deleteOne(query);
+            res.send(result);
+        })
+
+        // delete a specific routes
+        app.delete('/routes/:busId/:routeIndex', verifyJWT, verifyAdmin, async (req, res) => {
+            const { busId, routeIndex } = req.params;
+            console.log('Deleting route for bus with ID:', busId, 'and route index:', routeIndex);
+
+            // Find the bus by its ID
+            const query = { _id: new ObjectId(busId) };
+            const bus = await routeCollections.findOne(query);
+
+            if (!bus) {
+                return res.status(404).send({ message: 'Bus not found' });
+            }
+
+            // Remove the specific route using the index
+            const updatedRoutes = bus.routes.filter((route, index) => index != routeIndex);
+
+            // Update the bus with the modified routes
+            const updateQuery = { _id: new ObjectId(busId) };
+            const update = {
+                $set: { routes: updatedRoutes },
+            };
+
+            const result = await routeCollections.updateOne(updateQuery, update);
+
+            if (result.modifiedCount > 0) {
+                res.send({ message: 'Route deleted', deletedCount: 1 });
+            } else {
+                res.send({ message: 'No route deleted', deletedCount: 0 });
+            }
+        });
+
+        // delete a specific user
+        app.delete('/buses/:id', verifyJWT, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            console.log('Deleting bus with ID:', id);
+            const query = { _id: new ObjectId(id) };
+            const result = await busCollections.deleteOne(query);
+            res.send(result);
+        })
+
+        // upadted or put operation
+        app.put('/buses/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) }
+            const options = { upsert: true };
+            const updatedBus = req.body;
+            const bus = {
+                $set: {
+                    busName: updatedBus.busName,
+                    totalSeats: updatedBus.totalSeats,
+                    startTime: updatedBus.startTime,
+                    estimatedTime: updatedBus.estimatedTime,
+
+                }
+            }
+            const result = await busCollections.updateOne(filter, bus, options);
+            res.send(result);
+        })
+
+        // Updated user route
+        app.put('/users/:userId', async (req, res) => {
+            const { userId } = req.params;
+            const { name, phone, location, role } = req.body;
+
+            try {
+                const filter = { _id: new ObjectId(userId) };
+                const update = {
+                    $set: {
+                        name: name,
+                        phone: phone,
+                        location: location,
+                        role: role
+                    }
+                };
+
+                const result = await userCollections.updateOne(filter, update);
+
+                if (result.modifiedCount > 0) {
+                    res.send({ success: true, message: 'User updated successfully.' });
+                } else {
+                    res.send({ success: false, message: 'User not updated.' });
+                }
+            } catch (error) {
+                console.error('Error updating user:', error);
+                res.status(500).send({ success: false, message: 'Something went wrong. Please try again.' });
+            }
+        });
+
+        // updated routes 
+        app.put('/routes/:busId/:routeIndex', async (req, res) => {
+            const { busId, routeIndex } = req.params;
+            const { routeName, price } = req.body;
+
+            try {
+                const filter = { _id: new ObjectId(busId) };
+                const update = {
+                    $set: {
+                        [`routes.${routeIndex}.routeName`]: routeName,
+                        [`routes.${routeIndex}.price`]: price
+                    }
+                };
+
+                const result = await routeCollections.updateOne(filter, update);
+
+                if (result.modifiedCount > 0) {
+                    res.send({ success: true, message: 'Route updated successfully.' });
+                } else {
+                    res.send({ success: false, message: 'Route not updated.' });
+                }
+            } catch (error) {
+                console.error('Error updating route:', error);
+                res.status(500).send({ success: false, message: 'Something went wrong. Please try again.' });
+            }
+        });
 
 
         await client.db("admin").command({ ping: 1 });
