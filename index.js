@@ -558,6 +558,17 @@ async function run() {
             }
         });
 
+        // get All order data
+        app.get('/order-seats/:busName', async(req, res) =>{
+            try {
+                const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
+                console.log(paidSeats); // Log the fetched seats to the console
+                res.status(200).send(paidSeats);
+            } catch (error) {
+                console.error('Error fetching allocated seats:', error); // Log error details
+                res.status(500).send({ message: 'Error fetching allocated seats', error });
+            }
+        })
 
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
