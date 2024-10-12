@@ -113,7 +113,7 @@ async function run() {
         });
 
         // Check user authentication status
-        app.get('/auth-status', verifyJWT,  async (req, res) => {
+        app.get('/auth-status', verifyJWT, async (req, res) => {
             res.status(200).send({ isLoggedIn: true, role: req.user.role });
         });
 
@@ -127,7 +127,7 @@ async function run() {
                 res.status(200).send({ isLoggedIn: false, role: null });
             }
         });
-        
+
         // Get all users (admin-only access)
         app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
             try {
@@ -136,6 +136,16 @@ async function run() {
                 res.status(200).send(result);
             } catch (error) {
                 res.status(500).send({ message: 'Error fetching users', error });
+            }
+        });
+
+        // Fetch master users route 
+        app.get('/master-users', async (req, res) => {
+            try {
+                const masterUsers = await userCollections.find({ role: 'master' }).toArray();
+                res.status(200).send(masterUsers);
+            } catch (error) {
+                res.status(500).send({ message: 'Error fetching master users', error });
             }
         });
 
@@ -238,6 +248,7 @@ async function run() {
             const phone = req.body.phone;
             const allocatedSeat = req.body.allocatedSeat;
             const busName = req.body.busName;
+            const counterMaster = req.body.counterMaster
 
             const tran_id = new ObjectId().toString();
             const data = {
@@ -291,20 +302,21 @@ async function run() {
                         allocatedSeat: allocatedSeat,
                         tran_id: tran_id,
                         status: 'loading',
-                        busName: busName
+                        busName: busName,
+                        counterMaster: counterMaster
                     }
                     const seat = {
                         allocatedSeat: allocatedSeat,
                         status: 'loading',
                         tran_id: tran_id,
-                        busName: busName
+                        busName: busName,
+                        counterMaster: counterMaster
                     }
 
                     const result = orderCollections.insertOne(order);
                     console.log(result)
                     const blockedSeat = allocatedSeatCollections.insertOne(seat);
                     console.log(blockedSeat)
-
 
                     console.log('Redirecting to: ', GatewayPageURL);
                 } else {
@@ -566,7 +578,7 @@ async function run() {
         });
 
         ///get all order data 
-        app.get('/order-seats/:busName',verifyJWT, verifyAdmin, async (req, res) => {
+        app.get('/order-seats/:busName', verifyJWT, verifyAdmin, async (req, res) => {
             try {
                 const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
                 console.log(paidSeats); // Log the fetched seats to the console
@@ -578,7 +590,7 @@ async function run() {
         })
 
         // DELETE endpoint to delete a seat by bus name and seat ID
-        app.delete('/order-seats/:busName/:seatId',verifyJWT, verifyAdmin, async (req, res) => {
+        app.delete('/order-seats/:busName/:seatId', verifyJWT, verifyAdmin, async (req, res) => {
             const { busName, seatId } = req.params;
 
             try {
@@ -612,7 +624,7 @@ async function run() {
             }
         });
 
-        
+
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
