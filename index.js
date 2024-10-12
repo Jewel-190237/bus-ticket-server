@@ -20,13 +20,13 @@ const verifyJWT = (req, res, next) => {
     }
 
     const tokenWithoutBearer = token.split(' ')[1];
-    console.log('JWT Token:', tokenWithoutBearer); // Debug
+    // console.log('JWT Token:', tokenWithoutBearer); // Debug
 
     jwt.verify(tokenWithoutBearer, process.env.JWT_SECRET, (err, decoded) => {
         if (err) {
             return res.status(403).send({ message: 'Forbidden access' });
         }
-        console.log('Decoded JWT:', decoded); // Debug
+        // console.log('Decoded JWT:', decoded); // Debug
         req.user = decoded;
         next();
     });
@@ -36,7 +36,7 @@ const verifyJWT = (req, res, next) => {
 const verifyAdmin = async (req, res, next) => {
     try {
         const user = await client.db("Bus-Ticket").collection('users').findOne({ _id: new ObjectId(req.user.id) });
-        console.log('User Role:', user.role); // Debug
+        // console.log('User Role:', user.role); // Debug
         if (user && user.role === 'admin') {
             next();
         } else {
@@ -104,7 +104,7 @@ async function run() {
                     return res.status(401).send({ message: 'Invalid password' });
                 }
 
-                const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+                const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
                 userToken = token;
                 res.status(200).send({ message: 'Login successful', token });
             } catch (error) {
@@ -113,10 +113,21 @@ async function run() {
         });
 
         // Check user authentication status
-        app.get('/auth-status', verifyJWT, async (req, res) => {
+        app.get('/auth-status', verifyJWT,  async (req, res) => {
             res.status(200).send({ isLoggedIn: true, role: req.user.role });
         });
 
+        // get user role for discount button
+        app.get('/user-role', verifyJWT, async (req, res) => {
+            if (req.user) {
+                // User is logged in and token is valid
+                res.status(200).send({ isLoggedIn: true, role: req.user.role });
+            } else {
+                // No user is logged in (no token or invalid token)
+                res.status(200).send({ isLoggedIn: false, role: null });
+            }
+        });
+        
         // Get all users (admin-only access)
         app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
             try {
@@ -144,7 +155,6 @@ async function run() {
                 res.status(500).send({ message: 'Error deleting user', error });
             }
         });
-
 
         // email verification
         app.post('/forgetPassword', async (req, res) => {
@@ -326,7 +336,6 @@ async function run() {
             }
         })
 
-
         //payment fail
         app.post('/payment/fail/:tran_id', async (req, res) => {
             const result = await orderCollections.deleteOne(
@@ -347,7 +356,7 @@ async function run() {
         // Get allocated seats with status 'paid'
         app.get('/allocated-seats/:busName', async (req, res) => {
             try {
-                const paidSeats = await allocatedSeatCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
+                const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
                 console.log(paidSeats); // Log the fetched seats to the console
                 res.status(200).send(paidSeats);
             } catch (error) {
@@ -355,7 +364,6 @@ async function run() {
                 res.status(500).send({ message: 'Error fetching allocated seats', error });
             }
         });
-
 
         // Get order details by transaction ID for invoice Download
         app.get('/order/:tran_id', async (req, res) => {
@@ -372,9 +380,8 @@ async function run() {
             }
         });
 
-
         //getting routes
-        app.get('/routes', verifyJWT, verifyAdmin, async (req, res) => {
+        app.get('/routes', async (req, res) => {
             const user = routeCollections.find();
             const result = await user.toArray();
             res.send(result);
@@ -558,8 +565,8 @@ async function run() {
             }
         });
 
-        // get All order data
-        app.get('/order-seats/:busName', async(req, res) =>{
+        ///get all order data 
+        app.get('/order-seats/:busName',verifyJWT, verifyAdmin, async (req, res) => {
             try {
                 const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
                 console.log(paidSeats); // Log the fetched seats to the console
@@ -570,6 +577,42 @@ async function run() {
             }
         })
 
+        // DELETE endpoint to delete a seat by bus name and seat ID
+        app.delete('/order-seats/:busName/:seatId',verifyJWT, verifyAdmin, async (req, res) => {
+            const { busName, seatId } = req.params;
+
+            try {
+                // Find the order related to the seatId and busName
+                const order = await orderCollections.findOne({ _id: new ObjectId(seatId), busName: busName });
+
+                if (!order) {
+                    return res.status(404).send({ message: 'Seat not found' });
+                }
+
+                // Remove the allocated seat from the order
+                const updatedOrder = await orderCollections.updateOne(
+                    { _id: new ObjectId(seatId), busName: busName },
+                    { $pull: { allocatedSeat: { $in: order.allocatedSeat } } }
+                );
+
+                if (updatedOrder.modifiedCount > 0) {
+                    // If all seats are removed, delete the entire order
+                    const remainingSeats = await orderCollections.findOne({ _id: new ObjectId(seatId) });
+                    if (remainingSeats.allocatedSeat.length === 0) {
+                        await orderCollections.deleteOne({ _id: new ObjectId(seatId) });
+                    }
+
+                    res.status(200).send({ message: 'Seat deleted successfully' });
+                } else {
+                    res.status(500).send({ message: 'Failed to delete seat' });
+                }
+            } catch (error) {
+                console.error('Error deleting seat:', error);
+                res.status(500).send({ message: 'Error deleting seat', error });
+            }
+        });
+
+        
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
