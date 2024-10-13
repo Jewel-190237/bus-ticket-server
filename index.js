@@ -20,13 +20,11 @@ const verifyJWT = (req, res, next) => {
     }
 
     const tokenWithoutBearer = token.split(' ')[1];
-    // console.log('JWT Token:', tokenWithoutBearer); // Debug
 
     jwt.verify(tokenWithoutBearer, process.env.JWT_SECRET, (err, decoded) => {
         if (err) {
             return res.status(403).send({ message: 'Forbidden access' });
         }
-        // console.log('Decoded JWT:', decoded); // Debug
         req.user = decoded;
         next();
     });
@@ -36,7 +34,6 @@ const verifyJWT = (req, res, next) => {
 const verifyAdmin = async (req, res, next) => {
     try {
         const user = await client.db("Bus-Ticket").collection('users').findOne({ _id: new ObjectId(req.user.id) });
-        // console.log('User Role:', user.role); // Debug
         if (user && user.role === 'admin') {
             next();
         } else {
@@ -80,8 +77,31 @@ async function run() {
                 return res.status(409).send({ message: 'User already exists. Please login.' });
             }
 
+            // Set status as 'pending' if the role is 'master'
+            if (user.role === 'master') {
+                user.status = 'pending';
+            }
+
             const result = await userCollections.insertOne(user);
             res.status(200).send(result);
+        });
+
+        // Route to approve user status
+        app.put('/users/:id/approve', verifyJWT, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const update = { $set: { status: 'approved' } };
+
+            try {
+                const result = await userCollections.updateOne(query, update);
+                if (result.modifiedCount === 1) {
+                    res.status(200).send({ success: true, message: 'User approved successfully' });
+                } else {
+                    res.status(404).send({ success: false, message: 'User not found or already approved' });
+                }
+            } catch (error) {
+                res.status(500).send({ success: false, message: 'Error approving user', error });
+            }
         });
 
         // Login
@@ -120,10 +140,8 @@ async function run() {
         // get user role for discount button
         app.get('/user-role', verifyJWT, async (req, res) => {
             if (req.user) {
-                // User is logged in and token is valid
                 res.status(200).send({ isLoggedIn: true, role: req.user.role });
             } else {
-                // No user is logged in (no token or invalid token)
                 res.status(200).send({ isLoggedIn: false, role: null });
             }
         });
@@ -139,10 +157,10 @@ async function run() {
             }
         });
 
-        // Fetch master users route 
+        // Fetch master users for discount option 
         app.get('/master-users', async (req, res) => {
             try {
-                const masterUsers = await userCollections.find({ role: 'master' }).toArray();
+                const masterUsers = await userCollections.find({ role: 'master', status: 'approved' }).toArray();
                 res.status(200).send(masterUsers);
             } catch (error) {
                 res.status(500).send({ message: 'Error fetching master users', error });
@@ -152,7 +170,6 @@ async function run() {
         // Delete a specific user (admin-only access)
         app.delete('/users/:id', verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
-            console.log('Deleting user with ID:', id);
             const query = { _id: new ObjectId(id) };
             try {
                 const result = await userCollections.deleteOne(query);
@@ -314,9 +331,7 @@ async function run() {
                     }
 
                     const result = orderCollections.insertOne(order);
-                    console.log(result)
                     const blockedSeat = allocatedSeatCollections.insertOne(seat);
-                    console.log(blockedSeat)
 
                     console.log('Redirecting to: ', GatewayPageURL);
                 } else {
@@ -330,7 +345,6 @@ async function run() {
 
         // payment success 
         app.post('/payment/success/:tran_id', async (req, res) => {
-            console.log(req.params.tran_id);
             const result = await orderCollections.updateOne(
                 { tran_id: req.params.tran_id },
                 {
@@ -369,10 +383,9 @@ async function run() {
         app.get('/allocated-seats/:busName', async (req, res) => {
             try {
                 const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
-                console.log(paidSeats); // Log the fetched seats to the console
                 res.status(200).send(paidSeats);
             } catch (error) {
-                console.error('Error fetching allocated seats:', error); // Log error details
+                console.error('Error fetching allocated seats:', error);
                 res.status(500).send({ message: 'Error fetching allocated seats', error });
             }
         });
@@ -440,7 +453,6 @@ async function run() {
         // delete a specific user
         app.delete('/users/:id', verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
-            console.log('Deleting user with ID:', id);
             const query = { _id: new ObjectId(id) };
             const result = await userCollections.deleteOne(query);
             res.send(result);
@@ -449,23 +461,50 @@ async function run() {
         // posting route 
         app.post('/routes', verifyJWT, verifyAdmin, async (req, res) => {
             try {
-                const bus = req.body;
+                const { busName, routes } = req.body;
 
+                if (!busName || !routes) {
+                    return res.status(400).send({ message: 'Bus name and routes are required.' });
+                }
 
-                const result = await routeCollections.insertOne(bus);
+                // Check if a bus with the same busName already exists
+                const existingBus = await routeCollections.findOne({ busName });
 
-                return res.status(201).send(result);
+                if (existingBus) {
+                    // If the bus exists, update the existing bus's routes by appending new routes
+                    const updatedRoutes = [...existingBus.routes, ...routes];
+
+                    const updateResult = await routeCollections.updateOne(
+                        { busName },  // Filter by busName
+                        { $set: { routes: updatedRoutes } }  // Update the routes field
+                    );
+
+                    if (updateResult.matchedCount === 0) {
+                        throw new Error('Failed to update the bus routes');
+                    }
+
+                    return res.status(200).send({ message: 'Bus routes updated successfully', updateResult });
+                } else {
+                    // If the bus doesn't exist, insert a new bus
+                    const newBus = { busName, routes };
+
+                    const insertResult = await routeCollections.insertOne(newBus);
+
+                    if (!insertResult.acknowledged) {
+                        throw new Error('Failed to insert new bus');
+                    }
+
+                    return res.status(201).send({ message: 'New bus added successfully', insertResult });
+                }
             } catch (error) {
-
-                console.error('Error inserting bus data:', error);
-                return res.status(500).send({ message: 'Internal Server Error' });
+                console.error('Error inserting/updating bus data:', error);
+                return res.status(500).send({ message: 'Internal Server Error', error: error.message });
             }
         });
 
         // delete a specific routes
         app.delete('/routes/:busId/:routeIndex', verifyJWT, verifyAdmin, async (req, res) => {
             const { busId, routeIndex } = req.params;
-            console.log('Deleting route for bus with ID:', busId, 'and route index:', routeIndex);
 
             // Find the bus by its ID
             const query = { _id: new ObjectId(busId) };
@@ -496,7 +535,6 @@ async function run() {
         // delete a specific user
         app.delete('/buses/:id', verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
-            console.log('Deleting bus with ID:', id);
             const query = { _id: new ObjectId(id) };
             const result = await busCollections.deleteOne(query);
             res.send(result);
@@ -581,10 +619,9 @@ async function run() {
         app.get('/order-seats/:busName', verifyJWT, verifyAdmin, async (req, res) => {
             try {
                 const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
-                console.log(paidSeats); // Log the fetched seats to the console
                 res.status(200).send(paidSeats);
             } catch (error) {
-                console.error('Error fetching allocated seats:', error); // Log error details
+                console.error('Error fetching allocated seats:', error);
                 res.status(500).send({ message: 'Error fetching allocated seats', error });
             }
         })
@@ -623,6 +660,12 @@ async function run() {
                 res.status(500).send({ message: 'Error deleting seat', error });
             }
         });
+
+        app.get('/orders', async (req, res) => {
+            const user = orderCollections.find();
+            const result = await user.toArray();
+            res.send(result);
+        })
 
 
         await client.db("admin").command({ ping: 1 });
