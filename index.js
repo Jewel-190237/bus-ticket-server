@@ -256,6 +256,7 @@ async function run() {
             }
         });
 
+        // Payment integration
         app.post('/payment', async (req, res) => {
             const price = req.body.price;
             const name = req.body.name;
@@ -540,7 +541,7 @@ async function run() {
             res.send(result);
         })
 
-        // upadted or put operation
+        // updated or put operation
         app.put('/buses/:id', async (req, res) => {
             const id = req.params.id;
             const filter = { _id: new ObjectId(id) }
@@ -631,14 +632,12 @@ async function run() {
             const { busName, seatId } = req.params;
 
             try {
-                // Find the order related to the seatId and busName
                 const order = await orderCollections.findOne({ _id: new ObjectId(seatId), busName: busName });
 
                 if (!order) {
                     return res.status(404).send({ message: 'Seat not found' });
                 }
 
-                // Remove the allocated seat from the order
                 const updatedOrder = await orderCollections.updateOne(
                     { _id: new ObjectId(seatId), busName: busName },
                     { $pull: { allocatedSeat: { $in: order.allocatedSeat } } }
@@ -667,6 +666,24 @@ async function run() {
             res.send(result);
         })
 
+        // Route to clear all seats for a specific bus
+        app.delete('/orders/clear-ala/:busName', async (req, res) => {
+            const { busName } = req.params;
+            console.log('Received busName:', busName);
+
+            try {
+                const result = await orderCollections.deleteMany({ busName: busName });
+
+                if (result.deletedCount > 0) {
+                    res.status(200).send({ message: `All allocated seats for bus ${busName} have been cleared.` });
+                } else {
+                    res.status(404).send({ message: `No orders found for bus ${busName}.` });
+                }
+            } catch (error) {
+                console.error('Error clearing allocated seats:', error.stack);  // Log full error stack
+                res.status(500).send({ message: 'Error clearing allocated seats', error });
+            }
+        });
 
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
