@@ -83,6 +83,7 @@ async function run() {
             }
 
             const result = await userCollections.insertOne(user);
+            console.log('Login', user)
             res.status(200).send(result);
         });
 
@@ -103,6 +104,7 @@ async function run() {
                 res.status(500).send({ success: false, message: 'Error approving user', error });
             }
         });
+
 
         // Login
         app.post('/login', async (req, res) => {
@@ -126,7 +128,7 @@ async function run() {
 
                 const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
                 userToken = token;
-                res.status(200).send({ message: 'Login successful', token });
+                res.status(200).send({ message: 'Login successful', token, userId: user._id });
             } catch (error) {
                 res.status(500).send({ message: 'Login failed', error });
             }
@@ -138,11 +140,38 @@ async function run() {
         });
 
         // get user role for discount button
-        app.get('/user-role', verifyJWT, async (req, res) => {
-            if (req.user) {
-                res.status(200).send({ isLoggedIn: true, role: req.user.role });
-            } else {
-                res.status(200).send({ isLoggedIn: false, role: null });
+        app.get('/user-role/:userId', verifyJWT, async (req, res) => {
+            try {
+                const  userId  = req.params.userId; 
+
+                if (!userId) {
+                    return res.status(400).send({ isLoggedIn: false, role: null, message: 'User ID is required' });
+                }
+
+                const user = await userCollections.findOne({ _id: new ObjectId(userId) });
+
+                if (user) {
+                    const role = user.role;
+
+                    if (role === 'master') {
+                        if (user.status === 'approved') {
+                            return res.status(200).send({ isLoggedIn: true, role: 'master' });
+                        } else {
+                            return res.status(200).send({ isLoggedIn: true, role: null, message: 'Master status not approved' });
+                        }
+                    }
+
+                    if (role === 'admin') {
+                        return res.status(200).send({ isLoggedIn: true, role: 'admin' });
+                    }
+
+                    return res.status(200).send({ isLoggedIn: true, role: role });
+                } else {
+                    return res.status(404).send({ isLoggedIn: false, role: null, message: 'User not found' });
+                }
+            } catch (error) {
+                console.error('Error fetching user role:', error);
+                return res.status(500).send({ isLoggedIn: false, role: null, error: 'Internal Server Error' });
             }
         });
 
