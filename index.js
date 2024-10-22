@@ -142,7 +142,7 @@ async function run() {
         // get user role for discount button
         app.get('/user-role/:userId', verifyJWT, async (req, res) => {
             try {
-                const  userId  = req.params.userId; 
+                const userId = req.params.userId;
 
                 if (!userId) {
                     return res.status(400).send({ isLoggedIn: false, role: null, message: 'User ID is required' });
@@ -296,6 +296,8 @@ async function run() {
             const allocatedSeat = req.body.allocatedSeat;
             const busName = req.body.busName;
             const counterMaster = req.body.counterMaster
+            const selectedRoute = req.body.selectedRoute
+            const date = req.body.date
 
             const tran_id = new ObjectId().toString();
             const data = {
@@ -350,14 +352,24 @@ async function run() {
                         tran_id: tran_id,
                         status: 'loading',
                         busName: busName,
-                        counterMaster: counterMaster
+                        counterMaster: counterMaster,
+                        selectedRoute: selectedRoute,
+                        date: date
                     }
                     const seat = {
+                        price: price,
+                        name: name,
+                        phone: phone,
+                        email: email,
+                        location: location,
+                        address: address,
                         allocatedSeat: allocatedSeat,
-                        status: 'loading',
                         tran_id: tran_id,
+                        status: 'loading',
                         busName: busName,
-                        counterMaster: counterMaster
+                        counterMaster: counterMaster,
+                        selectedRoute: selectedRoute,
+                        date: date
                     }
 
                     const result = orderCollections.insertOne(order);
@@ -411,8 +423,16 @@ async function run() {
 
         // Get allocated seats with status 'paid'
         app.get('/allocated-seats/:busName', async (req, res) => {
+            const { busName } = req.params;
+            const { selectedDate } = req.query; // Get the selected date from the query parameters
+
             try {
-                const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
+                const paidSeats = await orderCollections.find({
+                    status: 'paid',
+                    busName: busName,
+                    date: selectedDate // Filter by date as well
+                }).toArray();
+
                 res.status(200).send(paidSeats);
             } catch (error) {
                 console.error('Error fetching allocated seats:', error);
