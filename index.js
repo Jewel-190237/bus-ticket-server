@@ -54,6 +54,7 @@ const client = new MongoClient(uri, {
     }
 });
 
+//ssl SSLCommerzPayment
 const store_id = process.env.STORE_ID;
 const store_passwd = process.env.STORE_PASS;
 const is_live = false;
@@ -285,6 +286,45 @@ async function run() {
             }
         });
 
+
+        // Offline Payment 
+        app.post('/paymentoffline', async (req, res) => {
+            const { price, name, email, location, address, phone, allocatedSeat, busName, counterMaster, selectedRoute, date } = req.body;
+            const tran_id = new ObjectId().toString();
+        
+            const order = {
+                price,
+                name,
+                phone,
+                email,
+                location,
+                address,
+                allocatedSeat,
+                tran_id,
+                status: 'loading',
+                busName,
+                counterMaster,
+                selectedRoute,
+                date
+            };
+        
+            try {
+                const result = await orderCollections.insertOne(order);
+                const blockedSeat = await allocatedSeatCollections.insertOne(order);
+        
+                if (result.insertedId) {
+                    res.json({ redirectUrl: `http://localhost:5173/payment/success/${tran_id}` });
+                } else {
+                    res.status(500).json({ message: "Failed to create order" });
+                }
+            } catch (error) {
+                console.error("Error inserting order:", error);
+                res.status(500).json({ message: "Server error" });
+            }
+        });
+        
+
+
         // Payment integration
         app.post('/payment', async (req, res) => {
             const price = req.body.price;
@@ -356,24 +396,10 @@ async function run() {
                         selectedRoute: selectedRoute,
                         date: date
                     }
-                    const seat = {
-                        price: price,
-                        name: name,
-                        phone: phone,
-                        email: email,
-                        location: location,
-                        address: address,
-                        allocatedSeat: allocatedSeat,
-                        tran_id: tran_id,
-                        status: 'loading',
-                        busName: busName,
-                        counterMaster: counterMaster,
-                        selectedRoute: selectedRoute,
-                        date: date
-                    }
+
 
                     const result = orderCollections.insertOne(order);
-                    const blockedSeat = allocatedSeatCollections.insertOne(seat);
+                    const blockedSeat = allocatedSeatCollections.insertOne(order);
 
                     console.log('Redirecting to: ', GatewayPageURL);
                 } else {
@@ -665,10 +691,18 @@ async function run() {
             }
         });
 
-        ///get all order data 
+        //get all order data 
         app.get('/order-seats/:busName', verifyJWT, verifyAdmin, async (req, res) => {
+            const { busName } = req.params;
+            const { selectedDate } = req.query; // Get the selected date from the query parameters
+
             try {
-                const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
+                const paidSeats = await orderCollections.find({
+                    status: 'paid',
+                    busName: busName,
+                    date: selectedDate // Filter by date as well
+                }).toArray();
+
                 res.status(200).send(paidSeats);
             } catch (error) {
                 console.error('Error fetching allocated seats:', error);
