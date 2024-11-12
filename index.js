@@ -291,7 +291,7 @@ async function run() {
         app.post('/paymentoffline', async (req, res) => {
             const { price, name, email, location, address, phone, allocatedSeat, busName, counterMaster, selectedRoute, date } = req.body;
             const tran_id = new ObjectId().toString();
-        
+
             const order = {
                 price,
                 name,
@@ -301,17 +301,17 @@ async function run() {
                 address,
                 allocatedSeat,
                 tran_id,
-                status: 'loading',
+                status: 'offline',
                 busName,
                 counterMaster,
                 selectedRoute,
                 date
             };
-        
+
             try {
                 const result = await orderCollections.insertOne(order);
                 const blockedSeat = await allocatedSeatCollections.insertOne(order);
-        
+
                 if (result.insertedId) {
                     res.json({ redirectUrl: `http://localhost:5173/payment/success/${tran_id}` });
                 } else {
@@ -322,7 +322,7 @@ async function run() {
                 res.status(500).json({ message: "Server error" });
             }
         });
-        
+
 
 
         // Payment integration
@@ -454,7 +454,7 @@ async function run() {
 
             try {
                 const paidSeats = await orderCollections.find({
-                    status: 'paid',
+                    status: { $in: ['paid', 'offline'] }, // Corrected filter for status
                     busName: busName,
                     date: selectedDate // Filter by date as well
                 }).toArray();
@@ -465,6 +465,7 @@ async function run() {
                 res.status(500).send({ message: 'Error fetching allocated seats', error });
             }
         });
+
 
         // Get order details by transaction ID for invoice Download
         app.get('/order/:tran_id', async (req, res) => {
